@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: sans-serif; padding: 16px; }
+    select { width: 100%; padding: 6px; margin-bottom: 10px; font-size: 14px; }
+    .dropdown-container { margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <div class="dropdown-container">
+    <h3>Collection</h3>
+    <select id="collectionDropdown"></select>
+  </div>
+
+  <div class="dropdown-container" id="groupContainer" style="display:none">
+    <h3>Group</h3>
+    <select id="groupDropdown"></select>
+  </div>
+
+  <div class="dropdown-container" id="subgroupContainer" style="display:none">
+    <h3>Subgroup</h3>
+    <select id="subgroupDropdown"></select>
+  </div>
+
+  <div class="dropdown-container" id="variableContainer" style="display:none">
+    <h3>Variable</h3>
+    <select id="variableDropdown"></select>
+  </div>
+
+<script>
+const collectionDropdown = document.getElementById("collectionDropdown");
+const groupDropdown = document.getElementById("groupDropdown");
+const subgroupDropdown = document.getElementById("subgroupDropdown");
+const variableDropdown = document.getElementById("variableDropdown");
+
+const groupContainer = document.getElementById("groupContainer");
+const subgroupContainer = document.getElementById("subgroupContainer");
+const variableContainer = document.getElementById("variableContainer");
+
+let collections = [];
+let tree = new Map(); // tree structure for selected collection
+
+// Receive collections from plugin
+onmessage = (event) => {
+  const msg = event.data.pluginMessage;
+  if (msg.type === "collections") {
+    collections = msg.collections;
+
+    collectionDropdown.innerHTML = "";
+    msg.collections.forEach(c => {
+      const option = document.createElement("option");
+      option.value = c.id;
+      option.textContent = c.name;
+      collectionDropdown.appendChild(option);
+    });
+
+    collectionDropdown.dispatchEvent(new Event("change"));
+  }
+};
+
+// Build tree from variable names
+function buildVariableTree(variables) {
+  const tree = new Map();
+  variables.forEach(v => {
+    const parts = v.name.split("/");
+    let current = tree;
+    parts.forEach((part, index) => {
+      if (!current.has(part)) current.set(part, { name: part, children: new Map() });
+      if (index === parts.length - 1) current.get(part).id = v.id;
+      current = current.get(part).children;
+    });
+  });
+  return tree;
+}
+
+// Populate dropdown from Map
+function populateDropdown(dropdown, nodeMap) {
+  dropdown.innerHTML = "";
+  nodeMap.forEach((node, key) => {
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = key;
+    dropdown.appendChild(option);
+  });
+}
+
+// Helper to get the selected leaf variable
+function getSelectedLeafNode() {
+  const groupNode = tree.get(groupDropdown.value);
+  if (!groupNode) return null;
+
+  if (subgroupContainer.style.display === "block") {
+    const subNode = groupNode.children.get(subgroupDropdown.value);
+    if (!subNode) return null;
+    return subNode.children.get(variableDropdown.value) || subNode;
+  } else {
+    return groupNode.children.get(variableDropdown.value) || groupNode;
+  }
+}
+
+// Collection change
+collectionDropdown.addEventListener("change", () => {
+  const selectedCollection = collections.find(c => c.id === collectionDropdown.value);
+  if (!selectedCollection) return;
+
+  tree = buildVariableTree(selectedCollection.variables);
+
+  if (tree.size > 0) {
+    populateDropdown(groupDropdown, tree);
+    groupContainer.style.display = "block";
+  } else {
+    groupContainer.style.display = "none";
+  }
+
+  subgroupContainer.style.display = "none";
+  variableContainer.style.display = "none";
+
+  groupDropdown.dispatchEvent(new Event("change"));
+});
+
+// Group change
+groupDropdown.addEventListener("change", () => {
+  const groupNode = tree.get(groupDropdown.value);
+  if (!groupNode) return;
+
+  if (groupNode.children.size > 0) {
+    const allLeaves = Array.from(groupNode.children.values()).every(child => child.id);
+    if (allLeaves) {
+      subgroupContainer.style.display = "none";
+      populateDropdown(variableDropdown, groupNode.children);
+      variableContainer.style.display = "block";
+    } else {
+      populateDropdown(subgroupDropdown, groupNode.children);
+      subgroupContainer.style.display = "block";
+      variableContainer.style.display = "none";
+    }
+  } else {
+    subgroupContainer.style.display = "none";
+    if (groupNode.id) {
+      populateDropdown(variableDropdown, new Map([[groupNode.name, groupNode]]));
+      variableContainer.style.display = "block";
+    } else {
+      variableContainer.style.display = "none";
+    }
+  }
+});
+
+// Subgroup change
+subgroupDropdown.addEventListener("change", () => {
+  const groupNode = tree.get(groupDropdown.value);
+  const subNode = groupNode.children.get(subgroupDropdown.value);
+  if (!subNode) return;
+
+  if (subNode.children.size > 0) {
+    populateDropdown(variableDropdown, subNode.children);
+  } else {
+    populateDropdown(variableDropdown, new Map([[subNode.name, subNode]]));
+  }
+
+  variableContainer.style.display = "block";
+});
+
+// Variable dropdown change — sends leaf variableId
+variableDropdown.addEventListener("change", () => {
+  const leafVariableNode = getSelectedLeafNode();
+  if (!leafVariableNode) return;
+
+  parent.postMessage({
+    pluginMessage: {
+      type: "variable-selected",
+      variableId: leafVariableNode.id
+    }
+  }, "*");
+});
+</script>
+</body>
+</html>
