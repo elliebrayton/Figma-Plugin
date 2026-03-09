@@ -275,10 +275,23 @@ function truncateDropdownsTo(n) {
   }
 }
 
-// Create and append one path dropdown at the given level (0-based)
-function ensurePathDropdown(level) {
-  if (pathDropdowns[level]) return pathDropdowns[level];
-  const label = level === 0 ? "Group" : level === 1 ? "Subgroup" : `Level ${level + 1}`;
+// Default label for path level: Group, Sub-Group 1, Sub-Group 2, ...
+function getPathLevelLabel(level, labelOverride) {
+  if (labelOverride) return labelOverride;
+  return level === 0 ? "Group" : `Sub-Group ${level}`;
+}
+
+// Create and append one path dropdown at the given level (0-based). Optional labelOverride (e.g. "Variable" for the leaf level).
+function ensurePathDropdown(level, labelOverride) {
+  if (pathDropdowns[level]) {
+    const existing = pathDropdowns[level];
+    if (existing.parentNode) {
+      const h3 = existing.parentNode.querySelector("h3");
+      if (h3) h3.textContent = getPathLevelLabel(level, labelOverride);
+    }
+    return pathDropdowns[level];
+  }
+  const label = getPathLevelLabel(level, labelOverride);
   const wrap = document.createElement("div");
   wrap.className = "dropdown-container";
   wrap.innerHTML = `<h3>${label}</h3><select class="path-dropdown" data-level="${level}"></select>`;
@@ -313,7 +326,9 @@ function onPathDropdownChange(changedLevel) {
   }
   if (node.children.size > 0) {
     const nextLevel = changedLevel + 1;
-    const nextDropdown = ensurePathDropdown(nextLevel);
+    const allLeaves = Array.from(node.children.values()).every(child => child.id !== undefined);
+    const nextLabel = allLeaves ? "Variable" : null;
+    const nextDropdown = ensurePathDropdown(nextLevel, nextLabel);
     populateDropdown(nextDropdown, node.children);
     nextDropdown.style.display = "";
     nextDropdown.dispatchEvent(new Event("change"));
