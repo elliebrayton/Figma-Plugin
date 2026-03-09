@@ -56,12 +56,14 @@ figma.ui.onmessage = async (msg) => {
                 rawValue: resolved.raw
             };
         }));
+        // Hide modes that have no display name (e.g. private modes showing as raw ID like "96076:0")
+        const valuesWithNames = values.filter(v => v.mode !== v.modeId);
         figma.ui.postMessage({
             type: "variable-readback",
             id: variable.id,
             name: variable.name,
             resolvedType: variable.resolvedType,
-            values
+            values: valuesWithNames
         });
     }
     if (msg.type === "apply-to-modes") {
