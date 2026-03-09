@@ -13,7 +13,31 @@
     #readBtn:hover { background: #0d8ce0; }
     #readback { background: #f5f5f5; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
     #readback h3 { margin: 0 0 8px; font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: .5px; }
-    #modeValue { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 8px 12px; font-size: 13px; color: #1a1a1a; font-weight: 500; word-break: break-all; min-height: 20px; margin-bottom: 8px; }
+    #modeValue { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 8px 12px; font-size: 13px; color: #1a1a1a; font-weight: 500; word-break: break-all; min-height: 20px; margin-bottom: 10px; }
+    .mode-checkbox-dropdown { position: relative; margin-bottom: 8px; }
+    .mode-checkbox-trigger {
+      width: 100%; padding: 6px 10px; font-size: 14px; border: 1px solid #ccc;
+      border-radius: 6px; background: #fff; cursor: pointer; text-align: left;
+      display: flex; justify-content: space-between; align-items: center;
+      box-sizing: border-box;
+    }
+    .mode-checkbox-trigger:hover { border-color: #aaa; }
+    .mode-checkbox-trigger.open { border-color: #18a0fb; border-radius: 6px 6px 0 0; }
+    .mode-checkbox-trigger .arrow { font-size: 10px; color: #888; }
+    .mode-checkbox-list {
+      display: none; position: absolute; width: 100%; background: #fff;
+      border: 1px solid #18a0fb; border-top: none; border-radius: 0 0 6px 6px;
+      z-index: 10; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .mode-checkbox-list.open { display: block; }
+    .mode-checkbox-item {
+      display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+      font-size: 13px; cursor: pointer; border-bottom: 1px solid #f0f0f0;
+    }
+    .mode-checkbox-item:last-child { border-bottom: none; }
+    .mode-checkbox-item:hover { background: #f5f9ff; }
+    .mode-checkbox-item.select-all { font-weight: 600; background: #fafafa; border-bottom: 1px solid #e0e0e0 !important; }
+    .mode-checkbox-item input[type="checkbox"] { width: 14px; height: 14px; accent-color: #18a0fb; cursor: pointer; flex-shrink: 0; }
     #applyBtn {
       width: 100%; padding: 8px; font-size: 14px; background: #1bc47d; color: #fff;
       border: none; border-radius: 6px; cursor: pointer; margin-top: 4px;
@@ -56,10 +80,25 @@
   </div>
 
   <div class="dropdown-container" id="modeContainer" style="display:none">
-    <h3>Mode</h3>
+    <h3>Source Mode</h3>
     <select id="modeDropdown"></select>
     <div id="modeValue"></div>
-    <button id="applyBtn">Apply to All Modes</button>
+
+    <h3>Apply To</h3>
+    <div class="mode-checkbox-dropdown">
+      <button class="mode-checkbox-trigger" id="modeCheckboxTrigger">
+        <span id="modeCheckboxLabel">All modes selected</span>
+        <span class="arrow">▼</span>
+      </button>
+      <div class="mode-checkbox-list" id="modeCheckboxList">
+        <label class="mode-checkbox-item select-all">
+          <input type="checkbox" id="selectAllModes" checked>
+          Select All
+        </label>
+      </div>
+    </div>
+
+    <button id="applyBtn">Apply to Selected Modes</button>
     <div id="applyStatus"></div>
   </div>
 
@@ -78,6 +117,10 @@ const readbackContent = document.getElementById("readbackContent");
 const modeContainer = document.getElementById("modeContainer");
 const modeDropdown = document.getElementById("modeDropdown");
 const modeValue = document.getElementById("modeValue");
+const modeCheckboxTrigger = document.getElementById("modeCheckboxTrigger");
+const modeCheckboxList = document.getElementById("modeCheckboxList");
+const modeCheckboxLabel = document.getElementById("modeCheckboxLabel");
+const selectAllModes = document.getElementById("selectAllModes");
 const applyBtn = document.getElementById("applyBtn");
 const applyStatus = document.getElementById("applyStatus");
 
@@ -85,6 +128,42 @@ let collections = [];
 let tree = new Map();
 let currentVariableId = null;
 let modeRawValues = [];
+let modeData = []; // { modeId, mode, value, rawValue }
+
+// Toggle checkbox dropdown open/close
+modeCheckboxTrigger.addEventListener("click", () => {
+  const isOpen = modeCheckboxList.classList.toggle("open");
+  modeCheckboxTrigger.classList.toggle("open", isOpen);
+});
+
+// Close checkbox dropdown when clicking outside
+document.addEventListener("click", (e) => {
+  if (!modeCheckboxTrigger.contains(e.target) && !modeCheckboxList.contains(e.target)) {
+    modeCheckboxList.classList.remove("open");
+    modeCheckboxTrigger.classList.remove("open");
+  }
+});
+
+function updateCheckboxLabel() {
+  const all = modeCheckboxList.querySelectorAll(".mode-item-cb");
+  const checked = modeCheckboxList.querySelectorAll(".mode-item-cb:checked");
+  if (checked.length === 0) {
+    modeCheckboxLabel.textContent = "No modes selected";
+  } else if (checked.length === all.length) {
+    modeCheckboxLabel.textContent = "All modes selected";
+  } else {
+    modeCheckboxLabel.textContent = `${checked.length} of ${all.length} modes selected`;
+  }
+  selectAllModes.checked = checked.length === all.length;
+  selectAllModes.indeterminate = checked.length > 0 && checked.length < all.length;
+}
+
+selectAllModes.addEventListener("change", () => {
+  modeCheckboxList.querySelectorAll(".mode-item-cb").forEach(cb => {
+    cb.checked = selectAllModes.checked;
+  });
+  updateCheckboxLabel();
+});
 
 // Receive collections from plugin
 onmessage = (event) => {
@@ -120,8 +199,10 @@ onmessage = (event) => {
     readback.style.display = "block";
 
     currentVariableId = msg.id;
+    modeData = msg.values;
     modeRawValues = msg.values.map(v => v.rawValue);
 
+    // Populate source mode dropdown
     modeDropdown.innerHTML = "";
     msg.values.forEach(v => {
       const opt = document.createElement("option");
@@ -130,6 +211,26 @@ onmessage = (event) => {
       modeDropdown.appendChild(opt);
     });
     modeValue.textContent = msg.values[0]?.value ?? "";
+
+    // Populate checkbox list (remove old mode items, keep Select All)
+    modeCheckboxList.querySelectorAll(".mode-checkbox-item:not(.select-all)").forEach(el => el.remove());
+    msg.values.forEach(v => {
+      const label = document.createElement("label");
+      label.className = "mode-checkbox-item";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.className = "mode-item-cb";
+      cb.value = v.modeId;
+      cb.checked = true;
+      cb.addEventListener("change", updateCheckboxLabel);
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(v.mode));
+      modeCheckboxList.appendChild(label);
+    });
+    selectAllModes.checked = true;
+    selectAllModes.indeterminate = false;
+    modeCheckboxLabel.textContent = "All modes selected";
+
     applyStatus.textContent = "";
     applyBtn.disabled = false;
     modeContainer.style.display = "block";
@@ -137,7 +238,7 @@ onmessage = (event) => {
 
   if (msg.type === "apply-complete") {
     applyBtn.disabled = false;
-    applyStatus.textContent = "✓ Applied to all modes";
+    applyStatus.textContent = "✓ Applied successfully";
     setTimeout(() => { applyStatus.textContent = ""; }, 3000);
   }
 };
@@ -259,19 +360,29 @@ modeDropdown.addEventListener("change", () => {
   applyStatus.textContent = "";
 });
 
-// Apply to All Modes button
+// Apply to Selected Modes button
 applyBtn.addEventListener("click", () => {
   if (!currentVariableId) return;
   const rawValue = modeRawValues[modeDropdown.selectedIndex];
   if (rawValue === undefined) return;
+
+  const checkedModeIds = Array.from(
+    modeCheckboxList.querySelectorAll(".mode-item-cb:checked")
+  ).map(cb => cb.value);
+
+  if (checkedModeIds.length === 0) {
+    applyStatus.textContent = "No modes selected.";
+    return;
+  }
 
   applyBtn.disabled = true;
   applyStatus.textContent = "Applying…";
 
   parent.postMessage({
     pluginMessage: {
-      type: "apply-to-all-modes",
+      type: "apply-to-modes",
       variableId: currentVariableId,
+      modeIds: checkedModeIds,
       rawValue
     }
   }, "*");

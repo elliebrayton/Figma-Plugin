@@ -50,6 +50,7 @@ figma.ui.onmessage = async (msg) => {
             var _a;
             const resolved = await resolveValue(value);
             return {
+                modeId,
                 mode: (_a = modeMap.get(modeId)) !== null && _a !== void 0 ? _a : modeId,
                 value: resolved.display,
                 rawValue: resolved.raw
@@ -63,11 +64,11 @@ figma.ui.onmessage = async (msg) => {
             values
         });
     }
-    if (msg.type === "apply-to-all-modes") {
+    if (msg.type === "apply-to-modes") {
         const variable = await figma.variables.getVariableByIdAsync(msg.variableId);
         if (!variable)
             return;
-        for (const modeId of Object.keys(variable.valuesByMode)) {
+        for (const modeId of msg.modeIds) {
             variable.setValueForMode(modeId, msg.rawValue);
         }
         figma.ui.postMessage({ type: "apply-complete" });
