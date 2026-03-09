@@ -5,12 +5,6 @@
     body { font-family: sans-serif; padding: 16px; }
     select { width: 100%; padding: 6px; margin-bottom: 10px; font-size: 14px; }
     .dropdown-container { margin-bottom: 8px; }
-    #readBtn {
-      width: 100%; padding: 8px; margin-top: 4px; margin-bottom: 12px;
-      font-size: 14px; background: #18a0fb; color: #fff;
-      border: none; border-radius: 6px; cursor: pointer;
-    }
-    #readBtn:hover { background: #0d8ce0; }
     #refreshBtn {
       flex-shrink: 0; padding: 6px 12px; font-size: 13px; background: #f0f0f0; color: #333;
       border: 1px solid #ccc; border-radius: 6px; cursor: pointer; white-space: nowrap;
@@ -73,8 +67,6 @@
     <!-- Dynamic path dropdowns (Level 1, Level 2, ...) are appended here -->
   </div>
 
-  <button id="readBtn" style="display:none">Read Variable</button>
-
   <div id="readback" style="display:none">
     <h3>Readback</h3>
     <div id="readbackContent"></div>
@@ -108,7 +100,6 @@
 <script>
 const collectionDropdown = document.getElementById("collectionDropdown");
 const pathDropdownsContainer = document.getElementById("pathDropdownsContainer");
-const readBtn = document.getElementById("readBtn");
 const readback = document.getElementById("readback");
 const readbackContent = document.getElementById("readbackContent");
 const modeContainer = document.getElementById("modeContainer");
@@ -180,7 +171,6 @@ onmessage = (event) => {
       noCollectionsMessage.style.display = "block";
       pathDropdownsContainer.innerHTML = "";
       pathDropdowns = [];
-      readBtn.style.display = "none";
       readback.style.display = "none";
       modeContainer.style.display = "none";
       currentVariableId = null;
@@ -351,14 +341,13 @@ function onPathDropdownChange(changedLevel) {
   const pathKeys = pathDropdowns.map(d => d.value).filter(Boolean);
   const node = getNodeAtPath(pathKeys);
   if (!node) {
-    readBtn.style.display = "none";
     hideReadbackAndMode();
     return;
   }
   if (node.id !== undefined) {
-    readBtn.style.display = "block";
     hideReadbackAndMode();
     parent.postMessage({ pluginMessage: { type: "variable-selected", variableId: node.id } }, "*");
+    parent.postMessage({ pluginMessage: { type: "read-variable", variableId: node.id } }, "*");
     return;
   }
   if (node.children.size > 0) {
@@ -370,7 +359,6 @@ function onPathDropdownChange(changedLevel) {
     nextDropdown.style.display = "";
     nextDropdown.dispatchEvent(new Event("change"));
   } else {
-    readBtn.style.display = "none";
     hideReadbackAndMode();
   }
 }
@@ -399,7 +387,6 @@ collectionDropdown.addEventListener("change", () => {
   truncateDropdownsTo(0);
   pathDropdowns = [];
   pathDropdownsContainer.innerHTML = "";
-  readBtn.style.display = "none";
   hideReadbackAndMode();
   applyStatus.textContent = "";
 
@@ -440,19 +427,6 @@ applyBtn.addEventListener("click", () => {
       variableId: currentVariableId,
       modeIds: checkedModeIds,
       rawValue
-    }
-  }, "*");
-});
-
-// Read Variable button — requests full variable details
-readBtn.addEventListener("click", () => {
-  const leafVariableNode = getSelectedLeafNode();
-  if (!leafVariableNode || !leafVariableNode.id) return;
-
-  parent.postMessage({
-    pluginMessage: {
-      type: "read-variable",
-      variableId: leafVariableNode.id
     }
   }, "*");
 });
