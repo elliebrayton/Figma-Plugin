@@ -11,8 +11,9 @@
       border: none; border-radius: 6px; cursor: pointer;
     }
     #readBtn:hover { background: #0d8ce0; }
-    #readback { background: #f5f5f5; border-radius: 6px; padding: 10px 12px; }
+    #readback { background: #f5f5f5; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
     #readback h3 { margin: 0 0 8px; font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: .5px; }
+    #modeValue { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 8px 12px; font-size: 13px; color: #1a1a1a; font-weight: 500; word-break: break-all; min-height: 20px; }
     .rb-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; border-bottom: 1px solid #e8e8e8; }
     .rb-row:last-child { border-bottom: none; }
     .rb-label { color: #888; }
@@ -47,6 +48,12 @@
     <div id="readbackContent"></div>
   </div>
 
+  <div class="dropdown-container" id="modeContainer" style="display:none">
+    <h3>Mode</h3>
+    <select id="modeDropdown"></select>
+    <div id="modeValue"></div>
+  </div>
+
 <script>
 const collectionDropdown = document.getElementById("collectionDropdown");
 const groupDropdown = document.getElementById("groupDropdown");
@@ -59,6 +66,9 @@ const variableContainer = document.getElementById("variableContainer");
 const readBtn = document.getElementById("readBtn");
 const readback = document.getElementById("readback");
 const readbackContent = document.getElementById("readbackContent");
+const modeContainer = document.getElementById("modeContainer");
+const modeDropdown = document.getElementById("modeDropdown");
+const modeValue = document.getElementById("modeValue");
 
 let collections = [];
 let tree = new Map(); // tree structure for selected collection
@@ -87,7 +97,6 @@ onmessage = (event) => {
       ["Name", msg.name],
       ["Type", msg.resolvedType],
       ["ID", msg.id],
-      ...msg.values.map(v => [v.mode, v.value])
     ];
     rows.forEach(([label, value]) => {
       const row = document.createElement("div");
@@ -96,6 +105,16 @@ onmessage = (event) => {
       readbackContent.appendChild(row);
     });
     readback.style.display = "block";
+
+    modeDropdown.innerHTML = "";
+    msg.values.forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v.value;
+      opt.textContent = v.mode;
+      modeDropdown.appendChild(opt);
+    });
+    modeValue.textContent = msg.values[0]?.value ?? "";
+    modeContainer.style.display = "block";
   }
 };
 
@@ -157,6 +176,7 @@ collectionDropdown.addEventListener("change", () => {
   variableContainer.style.display = "none";
   readBtn.style.display = "none";
   readback.style.display = "none";
+  modeContainer.style.display = "none";
 
   groupDropdown.dispatchEvent(new Event("change"));
 });
@@ -208,12 +228,18 @@ subgroupDropdown.addEventListener("change", () => {
   readBtn.style.display = "block";
 });
 
+// Mode dropdown change — updates displayed value
+modeDropdown.addEventListener("change", () => {
+  modeValue.textContent = modeDropdown.value;
+});
+
 // Variable dropdown change — sends leaf variableId
 variableDropdown.addEventListener("change", () => {
   const leafVariableNode = getSelectedLeafNode();
   if (!leafVariableNode) return;
 
   readback.style.display = "none";
+  modeContainer.style.display = "none";
 
   parent.postMessage({
     pluginMessage: {

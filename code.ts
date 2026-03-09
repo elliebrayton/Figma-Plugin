@@ -31,12 +31,31 @@ figma.ui.onmessage = async (msg) => {
     const collection = await figma.variables.getVariableCollectionByIdAsync(variable.variableCollectionId);
     const modeMap = new Map(collection?.modes.map(m => [m.modeId, m.name]) ?? []);
 
-    const values = Object.entries(variable.valuesByMode).map(([modeId, value]) => ({
-      mode: modeMap.get(modeId) ?? modeId,
-      value: typeof value === "object" && value !== null
-        ? JSON.stringify(value)
-        : String(value)
-    }));
+    async function resolveValue(value: VariableValue): Promise<string> {
+      if (typeof value === "object" && value !== null && "type" in value && value.type === "VARIABLE_ALIAS") {
+        const alias = await figma.variables.getVariableByIdAsync((value as VariableAlias).id);
+        if (alias) {
+          const firstModeId = Object.keys(alias.valuesByMode)[0];
+          return resolveValue(alias.valuesByMode[firstModeId]);
+        }
+        return (value as VariableAlias).id;
+      }
+      if (typeof value === "object" && value !== null && "r" in value) {
+        const { r, g, b, a } = value as RGBA;
+        const toHex = (n: number) => Math.round(n * 255).toString(16).padStart(2, "0");
+        const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+        return a < 1 ? `${hex}${toHex(a)}` : hex;
+      }
+      if (typeof value === "object" && value !== null) return JSON.stringify(value);
+      return String(value);
+    }
+
+    const values = await Promise.all(
+      Object.entries(variable.valuesByMode).map(async ([modeId, value]) => ({
+        mode: modeMap.get(modeId) ?? modeId,
+        value: await resolveValue(value)
+      }))
+    );
 
     figma.ui.postMessage({
       type: "variable-readback",
