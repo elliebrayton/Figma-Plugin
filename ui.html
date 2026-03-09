@@ -124,6 +124,7 @@ const selectAllModes = document.getElementById("selectAllModes");
 const applyBtn = document.getElementById("applyBtn");
 const applyStatus = document.getElementById("applyStatus");
 
+
 let collections = [];
 let tree = new Map();
 let currentVariableId = null;
@@ -185,11 +186,11 @@ onmessage = (event) => {
 
   if (msg.type === "variable-readback") {
     readbackContent.innerHTML = "";
-    const rows = [
-      ["Name", msg.name],
-      ["Type", msg.resolvedType],
-      ["ID", msg.id],
-    ];
+    const typeLabels = { FLOAT: "Number", COLOR: "Color", STRING: "String", BOOLEAN: "Boolean" };
+const rows = [
+  ["Name", msg.name],
+  ["Type", typeLabels[msg.resolvedType] ?? msg.resolvedType],
+];
     rows.forEach(([label, value]) => {
       const row = document.createElement("div");
       row.className = "rb-row";
