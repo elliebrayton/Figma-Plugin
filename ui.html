@@ -57,19 +57,8 @@
     <select id="collectionDropdown"></select>
   </div>
 
-  <div class="dropdown-container" id="groupContainer" style="display:none">
-    <h3>Group</h3>
-    <select id="groupDropdown"></select>
-  </div>
-
-  <div class="dropdown-container" id="subgroupContainer" style="display:none">
-    <h3>Subgroup</h3>
-    <select id="subgroupDropdown"></select>
-  </div>
-
-  <div class="dropdown-container" id="variableContainer" style="display:none">
-    <h3>Variable</h3>
-    <select id="variableDropdown"></select>
+  <div id="pathDropdownsContainer">
+    <!-- Dynamic path dropdowns (Level 1, Level 2, ...) are appended here -->
   </div>
 
   <button id="readBtn" style="display:none">Read Variable</button>
@@ -104,13 +93,7 @@
 
 <script>
 const collectionDropdown = document.getElementById("collectionDropdown");
-const groupDropdown = document.getElementById("groupDropdown");
-const subgroupDropdown = document.getElementById("subgroupDropdown");
-const variableDropdown = document.getElementById("variableDropdown");
-
-const groupContainer = document.getElementById("groupContainer");
-const subgroupContainer = document.getElementById("subgroupContainer");
-const variableContainer = document.getElementById("variableContainer");
+const pathDropdownsContainer = document.getElementById("pathDropdownsContainer");
 const readBtn = document.getElementById("readBtn");
 const readback = document.getElementById("readback");
 const readbackContent = document.getElementById("readbackContent");
@@ -127,6 +110,7 @@ const applyStatus = document.getElementById("applyStatus");
 
 let collections = [];
 let tree = new Map();
+let pathDropdowns = []; // array of <select> elements, one per path level
 let currentVariableId = null;
 let modeRawValues = [];
 let modeData = []; // { modeId, mode, value, rawValue }
@@ -270,18 +254,79 @@ function populateDropdown(dropdown, nodeMap) {
   });
 }
 
-// Helper to get the selected leaf variable
-function getSelectedLeafNode() {
-  const groupNode = tree.get(groupDropdown.value);
-  if (!groupNode) return null;
-
-  if (subgroupContainer.style.display === "block") {
-    const subNode = groupNode.children.get(subgroupDropdown.value);
-    if (!subNode) return null;
-    return subNode.children.get(variableDropdown.value) || subNode;
-  } else {
-    return groupNode.children.get(variableDropdown.value) || groupNode;
+// Walk tree from root using selected keys; returns the node at that path or null
+function getNodeAtPath(pathKeys) {
+  if (!pathKeys.length) return null;
+  let current = tree;
+  let node = null;
+  for (const key of pathKeys) {
+    if (!current || !current.has(key)) return null;
+    node = current.get(key);
+    current = node.children;
   }
+  return node;
+}
+
+// Remove path dropdowns and their containers after index n
+function truncateDropdownsTo(n) {
+  while (pathDropdowns.length > n) {
+    const wrap = pathDropdowns.pop();
+    if (wrap && wrap.parentNode) wrap.parentNode.remove();
+  }
+}
+
+// Create and append one path dropdown at the given level (0-based)
+function ensurePathDropdown(level) {
+  if (pathDropdowns[level]) return pathDropdowns[level];
+  const label = level === 0 ? "Group" : level === 1 ? "Subgroup" : `Level ${level + 1}`;
+  const wrap = document.createElement("div");
+  wrap.className = "dropdown-container";
+  wrap.innerHTML = `<h3>${label}</h3><select class="path-dropdown" data-level="${level}"></select>`;
+  const dropdown = wrap.querySelector("select");
+  dropdown.addEventListener("change", () => onPathDropdownChange(level));
+  pathDropdownsContainer.appendChild(wrap);
+  pathDropdowns[level] = dropdown;
+  return dropdown;
+}
+
+// Hide readback and mode UI
+function hideReadbackAndMode() {
+  readback.style.display = "none";
+  modeContainer.style.display = "none";
+}
+
+// Called when any path dropdown selection changes
+function onPathDropdownChange(changedLevel) {
+  truncateDropdownsTo(changedLevel + 1);
+  const pathKeys = pathDropdowns.map(d => d.value).filter(Boolean);
+  const node = getNodeAtPath(pathKeys);
+  if (!node) {
+    readBtn.style.display = "none";
+    hideReadbackAndMode();
+    return;
+  }
+  if (node.id !== undefined) {
+    readBtn.style.display = "block";
+    hideReadbackAndMode();
+    parent.postMessage({ pluginMessage: { type: "variable-selected", variableId: node.id } }, "*");
+    return;
+  }
+  if (node.children.size > 0) {
+    const nextLevel = changedLevel + 1;
+    const nextDropdown = ensurePathDropdown(nextLevel);
+    populateDropdown(nextDropdown, node.children);
+    nextDropdown.style.display = "";
+    nextDropdown.dispatchEvent(new Event("change"));
+  } else {
+    readBtn.style.display = "none";
+    hideReadbackAndMode();
+  }
+}
+
+// Get the currently selected node (leaf or folder) from path dropdowns
+function getSelectedLeafNode() {
+  const pathKeys = pathDropdowns.map(d => d.value).filter(Boolean);
+  return getNodeAtPath(pathKeys);
 }
 
 // Collection change
@@ -291,68 +336,18 @@ collectionDropdown.addEventListener("change", () => {
 
   tree = buildVariableTree(selectedCollection.variables);
 
-  if (tree.size > 0) {
-    populateDropdown(groupDropdown, tree);
-    groupContainer.style.display = "block";
-  } else {
-    groupContainer.style.display = "none";
-  }
-
-  subgroupContainer.style.display = "none";
-  variableContainer.style.display = "none";
+  truncateDropdownsTo(0);
+  pathDropdowns = [];
+  pathDropdownsContainer.innerHTML = "";
   readBtn.style.display = "none";
-  readback.style.display = "none";
-  modeContainer.style.display = "none";
+  hideReadbackAndMode();
   applyStatus.textContent = "";
 
-  groupDropdown.dispatchEvent(new Event("change"));
-});
-
-// Group change
-groupDropdown.addEventListener("change", () => {
-  const groupNode = tree.get(groupDropdown.value);
-  if (!groupNode) return;
-
-  if (groupNode.children.size > 0) {
-    const allLeaves = Array.from(groupNode.children.values()).every(child => child.id);
-    if (allLeaves) {
-      subgroupContainer.style.display = "none";
-      populateDropdown(variableDropdown, groupNode.children);
-      variableContainer.style.display = "block";
-      readBtn.style.display = "block";
-    } else {
-      populateDropdown(subgroupDropdown, groupNode.children);
-      subgroupContainer.style.display = "block";
-      variableContainer.style.display = "none";
-      readBtn.style.display = "none";
-    }
-  } else {
-    subgroupContainer.style.display = "none";
-    if (groupNode.id) {
-      populateDropdown(variableDropdown, new Map([[groupNode.name, groupNode]]));
-      variableContainer.style.display = "block";
-      readBtn.style.display = "block";
-    } else {
-      variableContainer.style.display = "none";
-      readBtn.style.display = "none";
-    }
+  if (tree.size > 0) {
+    const first = ensurePathDropdown(0);
+    populateDropdown(first, tree);
+    first.dispatchEvent(new Event("change"));
   }
-});
-
-// Subgroup change
-subgroupDropdown.addEventListener("change", () => {
-  const groupNode = tree.get(groupDropdown.value);
-  const subNode = groupNode.children.get(subgroupDropdown.value);
-  if (!subNode) return;
-
-  if (subNode.children.size > 0) {
-    populateDropdown(variableDropdown, subNode.children);
-  } else {
-    populateDropdown(variableDropdown, new Map([[subNode.name, subNode]]));
-  }
-
-  variableContainer.style.display = "block";
-  readBtn.style.display = "block";
 });
 
 // Mode dropdown change — updates displayed value
@@ -385,22 +380,6 @@ applyBtn.addEventListener("click", () => {
       variableId: currentVariableId,
       modeIds: checkedModeIds,
       rawValue
-    }
-  }, "*");
-});
-
-// Variable dropdown change — sends leaf variableId
-variableDropdown.addEventListener("change", () => {
-  const leafVariableNode = getSelectedLeafNode();
-  if (!leafVariableNode) return;
-
-  readback.style.display = "none";
-  modeContainer.style.display = "none";
-
-  parent.postMessage({
-    pluginMessage: {
-      type: "variable-selected",
-      variableId: leafVariableNode.id
     }
   }, "*");
 });
