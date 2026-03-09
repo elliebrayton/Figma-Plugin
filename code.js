@@ -1,5 +1,5 @@
 "use strict";
-figma.showUI(__html__, { width: 400, height: 420 });
+figma.showUI(__html__, { width: 400, height: 600 });
 async function sendCollections() {
     const collections = await figma.variables.getLocalVariableCollectionsAsync();
     const payload = [];
@@ -21,6 +21,10 @@ figma.ui.onmessage = async (msg) => {
     if (msg.type === "variable-selected") {
         console.log("Leaf variable selected:", msg.variableId);
     }
+    if (msg.type === "refresh") {
+        await sendCollections();
+        return;
+    }
     if (msg.type === "read-variable") {
         const variable = await figma.variables.getVariableByIdAsync(msg.variableId);
         if (!variable)
@@ -29,12 +33,15 @@ figma.ui.onmessage = async (msg) => {
         const modeMap = new Map((_a = collection === null || collection === void 0 ? void 0 : collection.modes.map(m => [m.modeId, m.name])) !== null && _a !== void 0 ? _a : []);
         async function resolveValue(value) {
             if (typeof value === "object" && value !== null && "type" in value && value.type === "VARIABLE_ALIAS") {
-                const alias = await figma.variables.getVariableByIdAsync(value.id);
+                const aliasRef = value;
+                const alias = await figma.variables.getVariableByIdAsync(aliasRef.id);
                 if (alias) {
                     const firstModeId = Object.keys(alias.valuesByMode)[0];
-                    return resolveValue(alias.valuesByMode[firstModeId]);
+                    const resolvedForDisplay = await resolveValue(alias.valuesByMode[firstModeId]);
+                    const display = `${alias.name} (${resolvedForDisplay.display})`;
+                    return { display, raw: aliasRef };
                 }
-                return { display: value.id, raw: value };
+                return { display: aliasRef.id, raw: value };
             }
             if (typeof value === "object" && value !== null && "r" in value) {
                 const { r, g, b, a } = value;

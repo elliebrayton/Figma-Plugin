@@ -11,6 +11,11 @@
       border: none; border-radius: 6px; cursor: pointer;
     }
     #readBtn:hover { background: #0d8ce0; }
+    #refreshBtn {
+      flex-shrink: 0; padding: 6px 12px; font-size: 13px; background: #f0f0f0; color: #333;
+      border: 1px solid #ccc; border-radius: 6px; cursor: pointer; white-space: nowrap;
+    }
+    #refreshBtn:hover { background: #e5e5e5; border-color: #aaa; }
     #readback { background: #f5f5f5; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
     #readback h3 { margin: 0 0 8px; font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: .5px; }
     #modeValue { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 8px 12px; font-size: 13px; color: #1a1a1a; font-weight: 500; word-break: break-all; min-height: 20px; margin-bottom: 10px; }
@@ -52,9 +57,16 @@
   </style>
 </head>
 <body>
-  <div class="dropdown-container">
-    <h3>Collection</h3>
-    <select id="collectionDropdown"></select>
+  <div id="collectionSection" class="dropdown-container" style="display: flex; align-items: flex-end; gap: 8px;">
+    <div style="flex: 1;">
+      <h3>Collection</h3>
+      <select id="collectionDropdown"></select>
+    </div>
+  </div>
+
+  <div id="noCollectionsMessage" style="display: none; padding: 12px; color: #666; font-size: 13px;">
+    There are no variable collections in this file.
+    <button type="button" id="refreshBtnEmpty" style="margin-top: 8px; padding: 6px 12px; font-size: 13px; background: #f0f0f0; border: 1px solid #ccc; border-radius: 6px; cursor: pointer;">↻ Refresh</button>
   </div>
 
   <div id="pathDropdownsContainer">
@@ -72,6 +84,8 @@
     <h3>Source Mode</h3>
     <select id="modeDropdown"></select>
     <div id="modeValue"></div>
+    <button id="refreshBtn" type="button" title="Refresh collections and current variable">↻ Refresh</button>
+
 
     <h3>Apply To</h3>
     <div class="mode-checkbox-dropdown">
@@ -106,6 +120,7 @@ const modeCheckboxLabel = document.getElementById("modeCheckboxLabel");
 const selectAllModes = document.getElementById("selectAllModes");
 const applyBtn = document.getElementById("applyBtn");
 const applyStatus = document.getElementById("applyStatus");
+const refreshBtn = document.getElementById("refreshBtn");
 
 
 let collections = [];
@@ -157,6 +172,24 @@ onmessage = (event) => {
   if (msg.type === "collections") {
     collections = msg.collections;
 
+    const collectionSection = document.getElementById("collectionSection");
+    const noCollectionsMessage = document.getElementById("noCollectionsMessage");
+
+    if (msg.collections.length === 0) {
+      collectionSection.style.display = "none";
+      noCollectionsMessage.style.display = "block";
+      pathDropdownsContainer.innerHTML = "";
+      pathDropdowns = [];
+      readBtn.style.display = "none";
+      readback.style.display = "none";
+      modeContainer.style.display = "none";
+      currentVariableId = null;
+      return;
+    }
+
+    noCollectionsMessage.style.display = "none";
+    collectionSection.style.display = "flex";
+
     collectionDropdown.innerHTML = "";
     msg.collections.forEach(c => {
       const option = document.createElement("option");
@@ -166,6 +199,10 @@ onmessage = (event) => {
     });
 
     collectionDropdown.dispatchEvent(new Event("change"));
+
+    if (currentVariableId) {
+      parent.postMessage({ pluginMessage: { type: "read-variable", variableId: currentVariableId } }, "*");
+    }
   }
 
   if (msg.type === "variable-readback") {
@@ -343,6 +380,14 @@ function getSelectedLeafNode() {
   const pathKeys = pathDropdowns.map(d => d.value).filter(Boolean);
   return getNodeAtPath(pathKeys);
 }
+
+// Refresh — re-fetch collections (and current variable readback if one is loaded)
+function doRefresh() {
+  parent.postMessage({ pluginMessage: { type: "refresh" } }, "*");
+}
+refreshBtn.addEventListener("click", doRefresh);
+const refreshBtnEmpty = document.getElementById("refreshBtnEmpty");
+if (refreshBtnEmpty) refreshBtnEmpty.addEventListener("click", doRefresh);
 
 // Collection change
 collectionDropdown.addEventListener("change", () => {
