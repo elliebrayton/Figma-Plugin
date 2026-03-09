@@ -13,7 +13,14 @@
     #readBtn:hover { background: #0d8ce0; }
     #readback { background: #f5f5f5; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
     #readback h3 { margin: 0 0 8px; font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: .5px; }
-    #modeValue { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 8px 12px; font-size: 13px; color: #1a1a1a; font-weight: 500; word-break: break-all; min-height: 20px; }
+    #modeValue { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 8px 12px; font-size: 13px; color: #1a1a1a; font-weight: 500; word-break: break-all; min-height: 20px; margin-bottom: 8px; }
+    #applyBtn {
+      width: 100%; padding: 8px; font-size: 14px; background: #1bc47d; color: #fff;
+      border: none; border-radius: 6px; cursor: pointer; margin-top: 4px;
+    }
+    #applyBtn:hover { background: #17a86b; }
+    #applyBtn:disabled { background: #aaa; cursor: default; }
+    #applyStatus { font-size: 12px; color: #1bc47d; text-align: center; margin-top: 6px; min-height: 16px; }
     .rb-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; border-bottom: 1px solid #e8e8e8; }
     .rb-row:last-child { border-bottom: none; }
     .rb-label { color: #888; }
@@ -52,6 +59,8 @@
     <h3>Mode</h3>
     <select id="modeDropdown"></select>
     <div id="modeValue"></div>
+    <button id="applyBtn">Apply to All Modes</button>
+    <div id="applyStatus"></div>
   </div>
 
 <script>
@@ -69,9 +78,13 @@ const readbackContent = document.getElementById("readbackContent");
 const modeContainer = document.getElementById("modeContainer");
 const modeDropdown = document.getElementById("modeDropdown");
 const modeValue = document.getElementById("modeValue");
+const applyBtn = document.getElementById("applyBtn");
+const applyStatus = document.getElementById("applyStatus");
 
 let collections = [];
-let tree = new Map(); // tree structure for selected collection
+let tree = new Map();
+let currentVariableId = null;
+let modeRawValues = [];
 
 // Receive collections from plugin
 onmessage = (event) => {
@@ -106,6 +119,9 @@ onmessage = (event) => {
     });
     readback.style.display = "block";
 
+    currentVariableId = msg.id;
+    modeRawValues = msg.values.map(v => v.rawValue);
+
     modeDropdown.innerHTML = "";
     msg.values.forEach(v => {
       const opt = document.createElement("option");
@@ -114,7 +130,15 @@ onmessage = (event) => {
       modeDropdown.appendChild(opt);
     });
     modeValue.textContent = msg.values[0]?.value ?? "";
+    applyStatus.textContent = "";
+    applyBtn.disabled = false;
     modeContainer.style.display = "block";
+  }
+
+  if (msg.type === "apply-complete") {
+    applyBtn.disabled = false;
+    applyStatus.textContent = "✓ Applied to all modes";
+    setTimeout(() => { applyStatus.textContent = ""; }, 3000);
   }
 };
 
@@ -177,6 +201,7 @@ collectionDropdown.addEventListener("change", () => {
   readBtn.style.display = "none";
   readback.style.display = "none";
   modeContainer.style.display = "none";
+  applyStatus.textContent = "";
 
   groupDropdown.dispatchEvent(new Event("change"));
 });
@@ -231,6 +256,25 @@ subgroupDropdown.addEventListener("change", () => {
 // Mode dropdown change — updates displayed value
 modeDropdown.addEventListener("change", () => {
   modeValue.textContent = modeDropdown.value;
+  applyStatus.textContent = "";
+});
+
+// Apply to All Modes button
+applyBtn.addEventListener("click", () => {
+  if (!currentVariableId) return;
+  const rawValue = modeRawValues[modeDropdown.selectedIndex];
+  if (rawValue === undefined) return;
+
+  applyBtn.disabled = true;
+  applyStatus.textContent = "Applying…";
+
+  parent.postMessage({
+    pluginMessage: {
+      type: "apply-to-all-modes",
+      variableId: currentVariableId,
+      rawValue
+    }
+  }, "*");
 });
 
 // Variable dropdown change — sends leaf variableId

@@ -1,5 +1,5 @@
 "use strict";
-figma.showUI(__html__, { width: 400, height: 300 });
+figma.showUI(__html__, { width: 400, height: 420 });
 async function sendCollections() {
     const collections = await figma.variables.getLocalVariableCollectionsAsync();
     const payload = [];
@@ -34,24 +34,26 @@ figma.ui.onmessage = async (msg) => {
                     const firstModeId = Object.keys(alias.valuesByMode)[0];
                     return resolveValue(alias.valuesByMode[firstModeId]);
                 }
-                return value.id;
+                return { display: value.id, raw: value };
             }
             if (typeof value === "object" && value !== null && "r" in value) {
                 const { r, g, b, a } = value;
                 const toHex = (n) => Math.round(n * 255).toString(16).padStart(2, "0");
                 const hex = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-                return a < 1 ? `${hex}${toHex(a)}` : hex;
+                return { display: a < 1 ? `${hex}${toHex(a)}` : hex, raw: value };
             }
             if (typeof value === "object" && value !== null)
-                return JSON.stringify(value);
-            return String(value);
+                return { display: JSON.stringify(value), raw: value };
+            return { display: String(value), raw: value };
         }
         const values = await Promise.all(Object.entries(variable.valuesByMode).map(async ([modeId, value]) => {
             var _a;
-            return ({
+            const resolved = await resolveValue(value);
+            return {
                 mode: (_a = modeMap.get(modeId)) !== null && _a !== void 0 ? _a : modeId,
-                value: await resolveValue(value)
-            });
+                value: resolved.display,
+                rawValue: resolved.raw
+            };
         }));
         figma.ui.postMessage({
             type: "variable-readback",
@@ -60,5 +62,14 @@ figma.ui.onmessage = async (msg) => {
             resolvedType: variable.resolvedType,
             values
         });
+    }
+    if (msg.type === "apply-to-all-modes") {
+        const variable = await figma.variables.getVariableByIdAsync(msg.variableId);
+        if (!variable)
+            return;
+        for (const modeId of Object.keys(variable.valuesByMode)) {
+            variable.setValueForMode(modeId, msg.rawValue);
+        }
+        figma.ui.postMessage({ type: "apply-complete" });
     }
 };
