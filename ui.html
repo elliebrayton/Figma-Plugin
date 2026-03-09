@@ -5,6 +5,18 @@
     body { font-family: sans-serif; padding: 16px; }
     select { width: 100%; padding: 6px; margin-bottom: 10px; font-size: 14px; }
     .dropdown-container { margin-bottom: 8px; }
+    #readBtn {
+      width: 100%; padding: 8px; margin-top: 4px; margin-bottom: 12px;
+      font-size: 14px; background: #18a0fb; color: #fff;
+      border: none; border-radius: 6px; cursor: pointer;
+    }
+    #readBtn:hover { background: #0d8ce0; }
+    #readback { background: #f5f5f5; border-radius: 6px; padding: 10px 12px; }
+    #readback h3 { margin: 0 0 8px; font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: .5px; }
+    .rb-row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; border-bottom: 1px solid #e8e8e8; }
+    .rb-row:last-child { border-bottom: none; }
+    .rb-label { color: #888; }
+    .rb-value { color: #1a1a1a; font-weight: 500; max-width: 60%; text-align: right; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -28,6 +40,13 @@
     <select id="variableDropdown"></select>
   </div>
 
+  <button id="readBtn" style="display:none">Read Variable</button>
+
+  <div id="readback" style="display:none">
+    <h3>Readback</h3>
+    <div id="readbackContent"></div>
+  </div>
+
 <script>
 const collectionDropdown = document.getElementById("collectionDropdown");
 const groupDropdown = document.getElementById("groupDropdown");
@@ -37,6 +56,9 @@ const variableDropdown = document.getElementById("variableDropdown");
 const groupContainer = document.getElementById("groupContainer");
 const subgroupContainer = document.getElementById("subgroupContainer");
 const variableContainer = document.getElementById("variableContainer");
+const readBtn = document.getElementById("readBtn");
+const readback = document.getElementById("readback");
+const readbackContent = document.getElementById("readbackContent");
 
 let collections = [];
 let tree = new Map(); // tree structure for selected collection
@@ -44,6 +66,7 @@ let tree = new Map(); // tree structure for selected collection
 // Receive collections from plugin
 onmessage = (event) => {
   const msg = event.data.pluginMessage;
+
   if (msg.type === "collections") {
     collections = msg.collections;
 
@@ -56,6 +79,23 @@ onmessage = (event) => {
     });
 
     collectionDropdown.dispatchEvent(new Event("change"));
+  }
+
+  if (msg.type === "variable-readback") {
+    readbackContent.innerHTML = "";
+    const rows = [
+      ["Name", msg.name],
+      ["Type", msg.resolvedType],
+      ["ID", msg.id],
+      ...msg.values.map(v => [v.mode, v.value])
+    ];
+    rows.forEach(([label, value]) => {
+      const row = document.createElement("div");
+      row.className = "rb-row";
+      row.innerHTML = `<span class="rb-label">${label}</span><span class="rb-value">${value}</span>`;
+      readbackContent.appendChild(row);
+    });
+    readback.style.display = "block";
   }
 };
 
@@ -115,6 +155,8 @@ collectionDropdown.addEventListener("change", () => {
 
   subgroupContainer.style.display = "none";
   variableContainer.style.display = "none";
+  readBtn.style.display = "none";
+  readback.style.display = "none";
 
   groupDropdown.dispatchEvent(new Event("change"));
 });
@@ -130,18 +172,22 @@ groupDropdown.addEventListener("change", () => {
       subgroupContainer.style.display = "none";
       populateDropdown(variableDropdown, groupNode.children);
       variableContainer.style.display = "block";
+      readBtn.style.display = "block";
     } else {
       populateDropdown(subgroupDropdown, groupNode.children);
       subgroupContainer.style.display = "block";
       variableContainer.style.display = "none";
+      readBtn.style.display = "none";
     }
   } else {
     subgroupContainer.style.display = "none";
     if (groupNode.id) {
       populateDropdown(variableDropdown, new Map([[groupNode.name, groupNode]]));
       variableContainer.style.display = "block";
+      readBtn.style.display = "block";
     } else {
       variableContainer.style.display = "none";
+      readBtn.style.display = "none";
     }
   }
 });
@@ -159,6 +205,7 @@ subgroupDropdown.addEventListener("change", () => {
   }
 
   variableContainer.style.display = "block";
+  readBtn.style.display = "block";
 });
 
 // Variable dropdown change — sends leaf variableId
@@ -166,9 +213,24 @@ variableDropdown.addEventListener("change", () => {
   const leafVariableNode = getSelectedLeafNode();
   if (!leafVariableNode) return;
 
+  readback.style.display = "none";
+
   parent.postMessage({
     pluginMessage: {
       type: "variable-selected",
+      variableId: leafVariableNode.id
+    }
+  }, "*");
+});
+
+// Read Variable button — requests full variable details
+readBtn.addEventListener("click", () => {
+  const leafVariableNode = getSelectedLeafNode();
+  if (!leafVariableNode || !leafVariableNode.id) return;
+
+  parent.postMessage({
+    pluginMessage: {
+      type: "read-variable",
       variableId: leafVariableNode.id
     }
   }, "*");

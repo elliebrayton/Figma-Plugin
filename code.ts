@@ -19,11 +19,31 @@ async function sendCollections() {
 sendCollections();
 
 // Receive selected leaf variable ID
-figma.ui.onmessage = (msg) => {
+figma.ui.onmessage = async (msg) => {
   if (msg.type === "variable-selected") {
-    const variableId = msg.variableId;
-    console.log("Leaf variable selected:", variableId);
-    // This variableId represents the entire variable including all modes
-    // You can use it for any further plugin logic
+    console.log("Leaf variable selected:", msg.variableId);
+  }
+
+  if (msg.type === "read-variable") {
+    const variable = await figma.variables.getVariableByIdAsync(msg.variableId);
+    if (!variable) return;
+
+    const collection = await figma.variables.getVariableCollectionByIdAsync(variable.variableCollectionId);
+    const modeMap = new Map(collection?.modes.map(m => [m.modeId, m.name]) ?? []);
+
+    const values = Object.entries(variable.valuesByMode).map(([modeId, value]) => ({
+      mode: modeMap.get(modeId) ?? modeId,
+      value: typeof value === "object" && value !== null
+        ? JSON.stringify(value)
+        : String(value)
+    }));
+
+    figma.ui.postMessage({
+      type: "variable-readback",
+      id: variable.id,
+      name: variable.name,
+      resolvedType: variable.resolvedType,
+      values
+    });
   }
 };
