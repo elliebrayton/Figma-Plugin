@@ -1,4 +1,4 @@
-figma.showUI(__html__, { width: 400, height: 420 });
+figma.showUI(__html__, { width: 400, height: 600 });
 
 async function sendCollections() {
   const collections = await figma.variables.getLocalVariableCollectionsAsync();
@@ -24,6 +24,11 @@ figma.ui.onmessage = async (msg) => {
     console.log("Leaf variable selected:", msg.variableId);
   }
 
+  if (msg.type === "refresh") {
+    await sendCollections();
+    return;
+  }
+
   if (msg.type === "read-variable") {
     const variable = await figma.variables.getVariableByIdAsync(msg.variableId);
     if (!variable) return;
@@ -33,12 +38,15 @@ figma.ui.onmessage = async (msg) => {
 
     async function resolveValue(value: VariableValue): Promise<{ display: string; raw: VariableValue }> {
       if (typeof value === "object" && value !== null && "type" in value && value.type === "VARIABLE_ALIAS") {
-        const alias = await figma.variables.getVariableByIdAsync((value as VariableAlias).id);
+        const aliasRef = value as VariableAlias;
+        const alias = await figma.variables.getVariableByIdAsync(aliasRef.id);
         if (alias) {
           const firstModeId = Object.keys(alias.valuesByMode)[0];
-          return resolveValue(alias.valuesByMode[firstModeId]);
+          const resolvedForDisplay = await resolveValue(alias.valuesByMode[firstModeId]);
+          const display = `${alias.name} (${resolvedForDisplay.display})`;
+          return { display, raw: aliasRef };
         }
-        return { display: (value as VariableAlias).id, raw: value };
+        return { display: aliasRef.id, raw: value };
       }
       if (typeof value === "object" && value !== null && "r" in value) {
         const { r, g, b, a } = value as RGBA;
@@ -62,12 +70,15 @@ figma.ui.onmessage = async (msg) => {
       })
     );
 
+    // Hide modes that have no display name (e.g. private modes showing as raw ID like "96076:0")
+    const valuesWithNames = values.filter(v => v.mode !== v.modeId);
+
     figma.ui.postMessage({
       type: "variable-readback",
       id: variable.id,
       name: variable.name,
       resolvedType: variable.resolvedType,
-      values
+      values: valuesWithNames
     });
   }
 

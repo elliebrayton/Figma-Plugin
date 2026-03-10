@@ -5,12 +5,11 @@
     body { font-family: sans-serif; padding: 16px; }
     select { width: 100%; padding: 6px; margin-bottom: 10px; font-size: 14px; }
     .dropdown-container { margin-bottom: 8px; }
-    #readBtn {
-      width: 100%; padding: 8px; margin-top: 4px; margin-bottom: 12px;
-      font-size: 14px; background: #18a0fb; color: #fff;
-      border: none; border-radius: 6px; cursor: pointer;
+    #refreshBtn {
+      flex-shrink: 0; padding: 6px 12px; font-size: 13px; background: #f0f0f0; color: #333;
+      border: 1px solid #ccc; border-radius: 6px; cursor: pointer; white-space: nowrap;
     }
-    #readBtn:hover { background: #0d8ce0; }
+    #refreshBtn:hover { background: #e5e5e5; border-color: #aaa; }
     #readback { background: #f5f5f5; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
     #readback h3 { margin: 0 0 8px; font-size: 13px; color: #555; text-transform: uppercase; letter-spacing: .5px; }
     #modeValue { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 8px 12px; font-size: 13px; color: #1a1a1a; font-weight: 500; word-break: break-all; min-height: 20px; margin-bottom: 10px; }
@@ -52,27 +51,21 @@
   </style>
 </head>
 <body>
-  <div class="dropdown-container">
-    <h3>Collection</h3>
-    <select id="collectionDropdown"></select>
+  <div id="collectionSection" class="dropdown-container" style="display: flex; align-items: flex-end; gap: 8px;">
+    <div style="flex: 1;">
+      <h3>Collection</h3>
+      <select id="collectionDropdown"></select>
+    </div>
   </div>
 
-  <div class="dropdown-container" id="groupContainer" style="display:none">
-    <h3>Group</h3>
-    <select id="groupDropdown"></select>
+  <div id="noCollectionsMessage" style="display: none; padding: 12px; color: #666; font-size: 13px;">
+    There are no variable collections in this file.
+    <button type="button" id="refreshBtnEmpty" style="margin-top: 8px; padding: 6px 12px; font-size: 13px; background: #f0f0f0; border: 1px solid #ccc; border-radius: 6px; cursor: pointer;">↻ Refresh</button>
   </div>
 
-  <div class="dropdown-container" id="subgroupContainer" style="display:none">
-    <h3>Subgroup</h3>
-    <select id="subgroupDropdown"></select>
+  <div id="pathDropdownsContainer">
+    <!-- Dynamic path dropdowns (Level 1, Level 2, ...) are appended here -->
   </div>
-
-  <div class="dropdown-container" id="variableContainer" style="display:none">
-    <h3>Variable</h3>
-    <select id="variableDropdown"></select>
-  </div>
-
-  <button id="readBtn" style="display:none">Read Variable</button>
 
   <div id="readback" style="display:none">
     <h3>Readback</h3>
@@ -83,6 +76,8 @@
     <h3>Source Mode</h3>
     <select id="modeDropdown"></select>
     <div id="modeValue"></div>
+    <button id="refreshBtn" type="button" title="Refresh collections and current variable">↻ Refresh</button>
+
 
     <h3>Apply To</h3>
     <div class="mode-checkbox-dropdown">
@@ -104,14 +99,7 @@
 
 <script>
 const collectionDropdown = document.getElementById("collectionDropdown");
-const groupDropdown = document.getElementById("groupDropdown");
-const subgroupDropdown = document.getElementById("subgroupDropdown");
-const variableDropdown = document.getElementById("variableDropdown");
-
-const groupContainer = document.getElementById("groupContainer");
-const subgroupContainer = document.getElementById("subgroupContainer");
-const variableContainer = document.getElementById("variableContainer");
-const readBtn = document.getElementById("readBtn");
+const pathDropdownsContainer = document.getElementById("pathDropdownsContainer");
 const readback = document.getElementById("readback");
 const readbackContent = document.getElementById("readbackContent");
 const modeContainer = document.getElementById("modeContainer");
@@ -123,10 +111,12 @@ const modeCheckboxLabel = document.getElementById("modeCheckboxLabel");
 const selectAllModes = document.getElementById("selectAllModes");
 const applyBtn = document.getElementById("applyBtn");
 const applyStatus = document.getElementById("applyStatus");
+const refreshBtn = document.getElementById("refreshBtn");
 
 
 let collections = [];
 let tree = new Map();
+let pathDropdowns = []; // array of <select> elements, one per path level
 let currentVariableId = null;
 let modeRawValues = [];
 let modeData = []; // { modeId, mode, value, rawValue }
@@ -173,6 +163,23 @@ onmessage = (event) => {
   if (msg.type === "collections") {
     collections = msg.collections;
 
+    const collectionSection = document.getElementById("collectionSection");
+    const noCollectionsMessage = document.getElementById("noCollectionsMessage");
+
+    if (msg.collections.length === 0) {
+      collectionSection.style.display = "none";
+      noCollectionsMessage.style.display = "block";
+      pathDropdownsContainer.innerHTML = "";
+      pathDropdowns = [];
+      readback.style.display = "none";
+      modeContainer.style.display = "none";
+      currentVariableId = null;
+      return;
+    }
+
+    noCollectionsMessage.style.display = "none";
+    collectionSection.style.display = "flex";
+
     collectionDropdown.innerHTML = "";
     msg.collections.forEach(c => {
       const option = document.createElement("option");
@@ -182,6 +189,10 @@ onmessage = (event) => {
     });
 
     collectionDropdown.dispatchEvent(new Event("change"));
+
+    if (currentVariableId) {
+      parent.postMessage({ pluginMessage: { type: "read-variable", variableId: currentVariableId } }, "*");
+    }
   }
 
   if (msg.type === "variable-readback") {
@@ -270,19 +281,101 @@ function populateDropdown(dropdown, nodeMap) {
   });
 }
 
-// Helper to get the selected leaf variable
-function getSelectedLeafNode() {
-  const groupNode = tree.get(groupDropdown.value);
-  if (!groupNode) return null;
+// Walk tree from root using selected keys; returns the node at that path or null
+function getNodeAtPath(pathKeys) {
+  if (!pathKeys.length) return null;
+  let current = tree;
+  let node = null;
+  for (const key of pathKeys) {
+    if (!current || !current.has(key)) return null;
+    node = current.get(key);
+    current = node.children;
+  }
+  return node;
+}
 
-  if (subgroupContainer.style.display === "block") {
-    const subNode = groupNode.children.get(subgroupDropdown.value);
-    if (!subNode) return null;
-    return subNode.children.get(variableDropdown.value) || subNode;
-  } else {
-    return groupNode.children.get(variableDropdown.value) || groupNode;
+// Remove path dropdowns and their containers after index n
+function truncateDropdownsTo(n) {
+  while (pathDropdowns.length > n) {
+    const wrap = pathDropdowns.pop();
+    if (wrap && wrap.parentNode) wrap.parentNode.remove();
   }
 }
+
+// Default label for path level: Group, Sub-Group 1, Sub-Group 2, ...
+function getPathLevelLabel(level, labelOverride) {
+  if (labelOverride) return labelOverride;
+  return level === 0 ? "Group" : `Sub-Group ${level}`;
+}
+
+// Create and append one path dropdown at the given level (0-based). Optional labelOverride (e.g. "Variable" for the leaf level).
+function ensurePathDropdown(level, labelOverride) {
+  if (pathDropdowns[level]) {
+    const existing = pathDropdowns[level];
+    if (existing.parentNode) {
+      const h3 = existing.parentNode.querySelector("h3");
+      if (h3) h3.textContent = getPathLevelLabel(level, labelOverride);
+    }
+    return pathDropdowns[level];
+  }
+  const label = getPathLevelLabel(level, labelOverride);
+  const wrap = document.createElement("div");
+  wrap.className = "dropdown-container";
+  wrap.innerHTML = `<h3>${label}</h3><select class="path-dropdown" data-level="${level}"></select>`;
+  const dropdown = wrap.querySelector("select");
+  dropdown.addEventListener("change", () => onPathDropdownChange(level));
+  pathDropdownsContainer.appendChild(wrap);
+  pathDropdowns[level] = dropdown;
+  return dropdown;
+}
+
+// Hide readback and mode UI
+function hideReadbackAndMode() {
+  readback.style.display = "none";
+  modeContainer.style.display = "none";
+}
+
+// Called when any path dropdown selection changes
+function onPathDropdownChange(changedLevel) {
+  truncateDropdownsTo(changedLevel + 1);
+  const pathKeys = pathDropdowns.map(d => d.value).filter(Boolean);
+  const node = getNodeAtPath(pathKeys);
+  if (!node) {
+    hideReadbackAndMode();
+    return;
+  }
+  if (node.id !== undefined) {
+    hideReadbackAndMode();
+    parent.postMessage({ pluginMessage: { type: "variable-selected", variableId: node.id } }, "*");
+    parent.postMessage({ pluginMessage: { type: "read-variable", variableId: node.id } }, "*");
+    return;
+  }
+  if (node.children.size > 0) {
+    const nextLevel = changedLevel + 1;
+    const allLeaves = Array.from(node.children.values()).every(child => child.id !== undefined);
+    const nextLabel = allLeaves ? "Variable" : null;
+    const nextDropdown = ensurePathDropdown(nextLevel, nextLabel);
+    populateDropdown(nextDropdown, node.children);
+    nextDropdown.style.display = "";
+    nextDropdown.dispatchEvent(new Event("change"));
+  } else {
+    hideReadbackAndMode();
+  }
+}
+
+// Get the currently selected node (leaf or folder) from path dropdowns
+function getSelectedLeafNode() {
+  const pathKeys = pathDropdowns.map(d => d.value).filter(Boolean);
+  return getNodeAtPath(pathKeys);
+}
+
+// Refresh — re-fetch collections (and current variable readback if one is loaded)
+function doRefresh() {
+  parent.postMessage({ pluginMessage: { type: "refresh" } }, "*");
+}
+refreshBtn.addEventListener("click", doRefresh);
+const refreshBtnEmpty = document.getElementById("refreshBtnEmpty");
+if (refreshBtnEmpty) refreshBtnEmpty.addEventListener("click", doRefresh);
 
 // Collection change
 collectionDropdown.addEventListener("change", () => {
@@ -291,68 +384,17 @@ collectionDropdown.addEventListener("change", () => {
 
   tree = buildVariableTree(selectedCollection.variables);
 
-  if (tree.size > 0) {
-    populateDropdown(groupDropdown, tree);
-    groupContainer.style.display = "block";
-  } else {
-    groupContainer.style.display = "none";
-  }
-
-  subgroupContainer.style.display = "none";
-  variableContainer.style.display = "none";
-  readBtn.style.display = "none";
-  readback.style.display = "none";
-  modeContainer.style.display = "none";
+  truncateDropdownsTo(0);
+  pathDropdowns = [];
+  pathDropdownsContainer.innerHTML = "";
+  hideReadbackAndMode();
   applyStatus.textContent = "";
 
-  groupDropdown.dispatchEvent(new Event("change"));
-});
-
-// Group change
-groupDropdown.addEventListener("change", () => {
-  const groupNode = tree.get(groupDropdown.value);
-  if (!groupNode) return;
-
-  if (groupNode.children.size > 0) {
-    const allLeaves = Array.from(groupNode.children.values()).every(child => child.id);
-    if (allLeaves) {
-      subgroupContainer.style.display = "none";
-      populateDropdown(variableDropdown, groupNode.children);
-      variableContainer.style.display = "block";
-      readBtn.style.display = "block";
-    } else {
-      populateDropdown(subgroupDropdown, groupNode.children);
-      subgroupContainer.style.display = "block";
-      variableContainer.style.display = "none";
-      readBtn.style.display = "none";
-    }
-  } else {
-    subgroupContainer.style.display = "none";
-    if (groupNode.id) {
-      populateDropdown(variableDropdown, new Map([[groupNode.name, groupNode]]));
-      variableContainer.style.display = "block";
-      readBtn.style.display = "block";
-    } else {
-      variableContainer.style.display = "none";
-      readBtn.style.display = "none";
-    }
+  if (tree.size > 0) {
+    const first = ensurePathDropdown(0);
+    populateDropdown(first, tree);
+    first.dispatchEvent(new Event("change"));
   }
-});
-
-// Subgroup change
-subgroupDropdown.addEventListener("change", () => {
-  const groupNode = tree.get(groupDropdown.value);
-  const subNode = groupNode.children.get(subgroupDropdown.value);
-  if (!subNode) return;
-
-  if (subNode.children.size > 0) {
-    populateDropdown(variableDropdown, subNode.children);
-  } else {
-    populateDropdown(variableDropdown, new Map([[subNode.name, subNode]]));
-  }
-
-  variableContainer.style.display = "block";
-  readBtn.style.display = "block";
 });
 
 // Mode dropdown change — updates displayed value
@@ -385,35 +427,6 @@ applyBtn.addEventListener("click", () => {
       variableId: currentVariableId,
       modeIds: checkedModeIds,
       rawValue
-    }
-  }, "*");
-});
-
-// Variable dropdown change — sends leaf variableId
-variableDropdown.addEventListener("change", () => {
-  const leafVariableNode = getSelectedLeafNode();
-  if (!leafVariableNode) return;
-
-  readback.style.display = "none";
-  modeContainer.style.display = "none";
-
-  parent.postMessage({
-    pluginMessage: {
-      type: "variable-selected",
-      variableId: leafVariableNode.id
-    }
-  }, "*");
-});
-
-// Read Variable button — requests full variable details
-readBtn.addEventListener("click", () => {
-  const leafVariableNode = getSelectedLeafNode();
-  if (!leafVariableNode || !leafVariableNode.id) return;
-
-  parent.postMessage({
-    pluginMessage: {
-      type: "read-variable",
-      variableId: leafVariableNode.id
     }
   }, "*");
 });
