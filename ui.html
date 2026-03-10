@@ -225,8 +225,10 @@ const rows = [
     modeValue.textContent = msg.values[0]?.value ?? "";
 
     // Populate checkbox list (remove old mode items, keep Select All)
+    // Only include modes that are writable (not locked behind a paid plan)
     modeCheckboxList.querySelectorAll(".mode-checkbox-item:not(.select-all)").forEach(el => el.remove());
     msg.values.forEach(v => {
+      if (!v.writable) return;
       const label = document.createElement("label");
       label.className = "mode-checkbox-item";
       const cb = document.createElement("input");

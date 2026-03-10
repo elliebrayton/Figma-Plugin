@@ -53,6 +53,16 @@ figma.ui.onmessage = async (msg) => {
                 return { display: JSON.stringify(value), raw: value };
             return { display: String(value), raw: value };
         }
+        const writableModeIds = new Set();
+        for (const [modeId, value] of Object.entries(variable.valuesByMode)) {
+            try {
+                variable.setValueForMode(modeId, value);
+                writableModeIds.add(modeId);
+            }
+            catch (_b) {
+                // Mode is locked or read-only (e.g. requires paid plan upgrade)
+            }
+        }
         const values = await Promise.all(Object.entries(variable.valuesByMode).map(async ([modeId, value]) => {
             var _a;
             const resolved = await resolveValue(value);
@@ -60,7 +70,8 @@ figma.ui.onmessage = async (msg) => {
                 modeId,
                 mode: (_a = modeMap.get(modeId)) !== null && _a !== void 0 ? _a : modeId,
                 value: resolved.display,
-                rawValue: resolved.raw
+                rawValue: resolved.raw,
+                writable: writableModeIds.has(modeId)
             };
         }));
         // Hide modes that have no display name (e.g. private modes showing as raw ID like "96076:0")

@@ -58,6 +58,16 @@ figma.ui.onmessage = async (msg) => {
       return { display: String(value), raw: value };
     }
 
+    const writableModeIds = new Set<string>();
+    for (const [modeId, value] of Object.entries(variable.valuesByMode)) {
+      try {
+        variable.setValueForMode(modeId, value);
+        writableModeIds.add(modeId);
+      } catch {
+        // Mode is locked or read-only (e.g. requires paid plan upgrade)
+      }
+    }
+
     const values = await Promise.all(
       Object.entries(variable.valuesByMode).map(async ([modeId, value]) => {
         const resolved = await resolveValue(value);
@@ -65,7 +75,8 @@ figma.ui.onmessage = async (msg) => {
           modeId,
           mode: modeMap.get(modeId) ?? modeId,
           value: resolved.display,
-          rawValue: resolved.raw
+          rawValue: resolved.raw,
+          writable: writableModeIds.has(modeId)
         };
       })
     );
